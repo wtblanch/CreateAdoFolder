@@ -269,264 +269,64 @@ $removeButton.Add_Click({
 })
 $fileGroup.Controls.Add($removeButton)
 
+# === Submit Button ===
+$submitButton = New-Object System.Windows.Forms.Button
+$submitButton.Text = "Upload to Azure DevOps"
+$submitButton.Size = New-Object System.Drawing.Size(200, 40)
+$submitButton.Location = New-Object System.Drawing.Point(20, 750)
+$submitButton.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
+$submitButton.ForeColor = [System.Drawing.Color]::White
+$submitButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$submitButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+$submitButton.Add_Click({
+    $statusBox.Clear()
+    
+    # Validate required fields
+    $requiredFields = @("PAT", "App Name", "Version")
+    $missingFields = @()
+    
+    foreach ($field in $requiredFields) {
+        if ([string]::IsNullOrWhiteSpace($textBoxes[$field].Text)) {
+            $missingFields += $field
+        }
+    }
+    
+    if ($missingFields.Count -gt 0) {
+        $statusBox.AppendText("Please fill in the following required fields:`r`n")
+        foreach ($field in $missingFields) {
+            $statusBox.AppendText("- $field`r`n")
+        }
+        return
+    }
+    
+    # Validate SharePoint URLs
+    $urls = $spTextBox.Text -split "`r`n" | Where-Object { $_ -ne "" }
+    if ($urls.Count -eq 0) {
+        $statusBox.AppendText("Please add at least one SharePoint URL`r`n")
+        return
+    }
+    
+    # Check if files are selected
+    if ($listView.Items.Count -eq 0) {
+        $statusBox.AppendText("Please select at least one file or folder to upload`r`n")
+        return
+    }
+    
+    # If all validations pass, start the upload process
+    $statusBox.AppendText("Starting upload process...`r`n")
+    # TODO: Add your upload logic here
+})
+$form.Controls.Add($submitButton)
+
 # === Status Box ===
 $statusBox = New-Object System.Windows.Forms.TextBox
 $statusBox.Multiline = $true
 $statusBox.ScrollBars = "Vertical"
 $statusBox.Size = New-Object System.Drawing.Size(540, 60)
-$statusBox.Location = New-Object System.Drawing.Point(20, 750)
+$statusBox.Location = New-Object System.Drawing.Point(20, 800)
 $statusBox.ReadOnly = $true
-$statusBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
 $statusBox.BackColor = [System.Drawing.Color]::White
 $form.Controls.Add($statusBox)
-
-# === Start Button ===
-$startButton = New-Object System.Windows.Forms.Button
-$startButton.Text = "Start Upload"
-$startButton.Location = New-Object System.Drawing.Point(20, 820)
-$startButton.Size = New-Object System.Drawing.Size(540, 35)
-$startButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$startButton.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
-$startButton.ForeColor = [System.Drawing.Color]::White
-$startButton.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-
-$startButton.Add_Click({
-    $statusBox.Clear()
-
-    # === Validate Required Fields ===
-    foreach ($label in $labels) {
-        if ([string]::IsNullOrWhiteSpace($textBoxes[$label].Text)) {
-            [System.Windows.Forms.MessageBox]::Show("Please enter: $label", "Missing Field", "OK", "Error")
-            return
-        }
-    }
-
-    $pat      = $textBoxes["PAT"].Text
-    $orgUrl   = $textBoxes["Organization URL"].Text.TrimEnd("/")
-    $project  = $textBoxes["Project"].Text
-    $repo     = $textBoxes["Repo"].Text
-    $appName  = $textBoxes["App Name"].Text
-    $version  = $textBoxes["Version"].Text
-
-    # === Create API headers ===
-    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$pat"))
-    $headers = @{
-        Authorization = "Basic $base64AuthInfo"
-        "Content-Type" = "application/json"
-    }
-
-    try {
-        # Create temporary directory
-        $tempDir = Join-Path $env:TEMP "$appName-$version"
-        if (Test-Path $tempDir) {
-            Remove-Item -Path $tempDir -Recurse -Force
-        }
-        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-        
-        # Download SharePoint files
-        $urls = $spTextBox.Text -split "`r`n" | Where-Object { $_ -ne "" }
-        foreach ($url in $urls) {
-            $statusBox.AppendText("Processing SharePoint URL: $url`r`n")
-            Get-SharePointFiles -Url $url -DestinationPath $tempDir
-        }
-        
-        # Copy local files
-        foreach ($file in $localFiles) {
-            $fileName = Split-Path $file -Leaf
-            Copy-Item -Path $file -Destination (Join-Path $tempDir $fileName)
-            $statusBox.AppendText("Copied local file: $fileName`r`n")
-        }
-
-        # Generate README.md
-        $readmeContent = @"
-# $appName
-
-## Version: $version
-
-This repository contains the files and configuration for $appName.
-
-## Repository Information
-- **Organization:** $orgUrl
-- **Project:** $project
-- **Repository:** $repo
-
-## Repository Structure
-\`\`\`
-$appName/
-└── $version/
-    ├── README.md
-    ├── [SharePoint Files]
-$((Get-ChildItem -Path $tempDir -Recurse -Directory | ForEach-Object {
-    $indent = "    │   " + ("│   " * ($_.FullName.Split([IO.Path]::DirectorySeparatorChar).Count - $tempDir.Split([IO.Path]::DirectorySeparatorChar).Count))
-    "$indent└── $($_.Name)/"
-}) -join "`r`n")
-$((Get-ChildItem -Path $tempDir -Recurse -File | ForEach-Object {
-    $indent = "    │   " + ("│   " * ($_.Directory.FullName.Split([IO.Path]::DirectorySeparatorChar).Count - $tempDir.Split([IO.Path]::DirectorySeparatorChar).Count))
-    "$indent└── $($_.Name)"
-}) -join "`r`n")
-\`\`\`
-
-## Contents
-This folder contains:
-- Configuration files
-- SharePoint documents
-- Application-specific settings
-
-## SharePoint Documents
-The following SharePoint sites are included:
-$(($urls | ForEach-Object { "- $_" }) -join "`r`n")
-
-## Files
-$((Get-ChildItem -Path $tempDir -Recurse -File | ForEach-Object { 
-    $relativePath = $_.FullName.Replace($tempDir, '').TrimStart('\')
-    "- $relativePath"
-}) -join "`r`n")
-
-## Version History
-- Current Version: $version
-  - Initial setup and configuration
-  - SharePoint documents synchronized
-  - Local files added
-
-## Contact
-For questions or issues, please contact the repository maintainers.
-
----
-Last Updated: $(Get-Date -Format "yyyy-MM-dd")
-"@
-
-        Set-Content -Path (Join-Path $tempDir "README.md") -Value $readmeContent
-        $statusBox.AppendText("Created README.md`r`n")
-
-        # Batch commit all files
-        $commitMessage = "Initial commit for $appName $version - Added README.md and synchronized files from SharePoint"
-        $success = Submit-BatchCommit -OrgUrl $orgUrl -Project $project -Repo $repo -Headers $headers `
-                                    -AppName $appName -Version $version -SourcePath $tempDir `
-                                    -CommitMessage $commitMessage
-
-        if ($success) {
-            $statusBox.AppendText("Upload completed successfully.`r`n")
-        }
-        
-        # Cleanup
-        if (Test-Path $tempDir) {
-            Remove-Item -Path $tempDir -Recurse -Force
-            $statusBox.AppendText("Cleaned up temporary directory`r`n")
-        }
-    }
-    catch {
-        $statusBox.AppendText("Error during upload: $_`r`n")
-    }
-})
-
-function Get-SharePointFiles {
-    param (
-        $Url,
-        $DestinationPath
-    )
-    
-    try {
-        # Note: This requires manual authentication through browser
-        Connect-PnPOnline -Url $Url -Interactive
-        
-        # Get all files from the SharePoint site
-        $files = Get-PnPListItem -List "Documents" -Fields "FileLeafRef", "FileRef"
-        
-        foreach ($file in $files) {
-            $fileName = $file["FileLeafRef"]
-            $filePath = $file["FileRef"]
-            
-            # Create the destination directory if it doesn't exist
-            $destDir = Join-Path $DestinationPath (Split-Path $filePath -Parent)
-            if (!(Test-Path $destDir)) {
-                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-            }
-            
-            # Download the file
-            Get-PnPFile -Url $filePath -Path $destDir -Filename $fileName -AsFile
-            $statusBox.AppendText("Downloaded: $fileName`r`n")
-        }
-    }
-    catch {
-        $statusBox.AppendText("Error downloading from SharePoint: $_`r`n")
-    }
-}
-
-function Submit-BatchCommit {
-    param (
-        $OrgUrl,
-        $Project,
-        $Repo,
-        $Headers,
-        $AppName,
-        $Version,
-        $SourcePath,
-        $CommitMessage
-    )
-    
-    try {
-        $apiVersion = "7.0"
-        $url = "$OrgUrl/$Project/_apis/git/repositories/$Repo/pushes?api-version=$apiVersion"
-        
-        # Get the repository ID and default branch
-        $repoUrl = "$OrgUrl/$Project/_apis/git/repositories/$Repo?api-version=$apiVersion"
-        $repoInfo = Invoke-RestMethod -Uri $repoUrl -Headers $Headers -Method Get
-        
-        # Get the latest commit on the default branch
-        $refUrl = "$OrgUrl/$Project/_apis/git/repositories/$Repo/refs?filter=heads/$($repoInfo.defaultBranch)&api-version=$apiVersion"
-        $ref = Invoke-RestMethod -Uri $refUrl -Headers $Headers -Method Get
-        $oldObjectId = $ref.value[0].objectId
-        
-        # Prepare the changes
-        $changes = @()
-        
-        # Get all files in the source directory
-        $files = Get-ChildItem -Path $SourcePath -Recurse -File
-        
-        foreach ($file in $files) {
-            $relativePath = $file.FullName.Replace($SourcePath, '').TrimStart('\')
-            $targetPath = "$AppName/$Version/$relativePath"
-            
-            $content = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($file.FullName))
-            
-            $changes += @{
-                changeType = "add"
-                item = @{
-                    path = $targetPath
-                }
-                newContent = @{
-                    content = $content
-                    contentType = "base64"
-                }
-            }
-        }
-        
-        # Prepare the push body
-        $pushBody = @{
-            refUpdates = @(
-                @{
-                    name = "refs/heads/$($repoInfo.defaultBranch)"
-                    oldObjectId = $oldObjectId
-                }
-            )
-            commits = @(
-                @{
-                    comment = $CommitMessage
-                    changes = $changes
-                }
-            )
-        } | ConvertTo-Json -Depth 20
-        
-        # Push the changes
-        Invoke-RestMethod -Uri $url -Headers $headers -Method Post -Body $pushBody
-        $statusBox.AppendText("Successfully pushed all files in a single commit`r`n")
-        return $true
-    }
-    catch {
-        $statusBox.AppendText("Error during batch commit: $_`r`n")
-        return $false
-    }
-}
 
 # === Show Form ===
 [void]$form.ShowDialog()
