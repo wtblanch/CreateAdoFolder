@@ -6,8 +6,9 @@ A PowerShell-based GUI application that simplifies the process of uploading file
 
 - User-friendly graphical interface
 - Azure DevOps integration
-- SharePoint URL support (up to 3 URLs)
-- File and folder upload capabilities
+- SharePoint URL validation and file synchronization
+- File and folder selection with visual list
+- Batch upload in single commit
 - Real-time status updates
 - Configurable connection settings
 
@@ -19,6 +20,14 @@ A PowerShell-based GUI application that simplifies the process of uploading file
 - Required PowerShell modules:
   - System.Windows.Forms
   - System.Drawing
+  - PnP.PowerShell (for SharePoint integration)
+
+## Installation
+
+1. Install required PowerShell module:
+   ```powershell
+   Install-Module -Name PnP.PowerShell -Scope CurrentUser
+   ```
 
 ## Configuration
 
@@ -44,16 +53,59 @@ $config = @{
    .\CreateADOFolder.ps1
    ```
 
-2. Fill in the required connection and project settings in the GUI
-3. Select files or folders to upload
-4. Click the Start button to begin the upload process
-5. Monitor the status in the status box
+2. Fill in the required connection settings:
+   - Personal Access Token (PAT)
+   - Organization URL
+   - Project name
+   - Repository name
+   - Application name
+   - Version
+
+3. Add SharePoint URLs:
+   - Enter SharePoint URLs in the text box (one per line)
+   - Click "Validate URLs" to verify format
+   - URLs must be in the format: https://*.sharepoint.com/*
+
+4. Select files and folders:
+   - Click "Add Files" to select individual files
+   - Click "Add Folder" to select entire folders
+   - Selected items appear in the list view
+   - Use "Remove Selected" to remove items from the list
+
+5. Click "Start Upload" to begin the process:
+   - Files are downloaded from SharePoint
+   - Local files are collected
+   - README.md is generated
+   - All files are uploaded in a single commit
+
+## Repository Structure
+
+When files are uploaded, they follow this structure:
+```
+AppName/
+└── Version/
+    ├── README.md
+    ├── [SharePoint Files with Original Structure]
+    │   ├── folder1/
+    │   │   ├── file1.docx
+    │   │   └── file2.xlsx
+    │   └── folder2/
+    │       └── file3.pdf
+    └── [Local Files]
+        └── file4.txt
+```
 
 ## Interface
 
 The application provides a clean interface with the following sections:
 - Connection Settings
+  - PAT and Organization URL inputs
 - Project Settings
-- File Selection
+  - Project, Repo, App Name, Version inputs
+- SharePoint URLs
+  - URL input with validation
+- Local Files and Folders
+  - File and folder selection
+  - List view of selected items
 - Status Updates
-
+  - Real-time progress and error messages
