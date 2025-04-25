@@ -25,6 +25,7 @@ A PowerShell-based GUI application that simplifies the process of uploading file
 ## Installation
 
 1. Install required PowerShell module:
+
    ```powershell
    Install-Module -Name PnP.PowerShell -Scope CurrentUser
    ```
@@ -49,6 +50,7 @@ $config = @{
 ## Usage
 
 1. Run the script:
+
    ```powershell
    .\CreateADOFolder.ps1
    ```
@@ -65,6 +67,7 @@ $config = @{
    - Enter SharePoint URLs in the text box (one per line)
    - Click "Validate URLs" to verify format
    - URLs must be in the format: https://*.sharepoint.com/*
+   - ** for use later
 
 4. Select files and folders:
    - Click "Add Files" to select individual files
@@ -81,6 +84,7 @@ $config = @{
 ## Repository Structure
 
 When files are uploaded, they follow this structure:
+
 ```
 AppName/
 └── Version/
@@ -98,6 +102,7 @@ AppName/
 ## Interface
 
 The application provides a clean interface with the following sections:
+
 - Connection Settings
   - PAT and Organization URL inputs
 - Project Settings

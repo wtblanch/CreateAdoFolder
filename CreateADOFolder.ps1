@@ -4,10 +4,10 @@ Import-Module PnP.PowerShell -ErrorAction SilentlyContinue
 
 # === Configuration ===
 $config = @{
-    Organization = "https://dev.azure.com/YourOrgName"  # Replace with your organization URL
-    Project = "YourProjectName"                         # Replace with your project name
-    Repository = "YourRepoName"                         # Replace with your repository name
-    SharePointUrls = @(                                 # Add up to 3 SharePoint URLs
+    Organization = "https://dev.azure.com/YourOrgName"  # Your Azure DevOps organization URL
+    Project = "YourProjectName"                         # Your project name
+    Repository = "YourRepoName"                         # Your repository name
+    SharePointUrls = @(                                # Up to 3 SharePoint URLs
         "https://sharepoint.com/url1",
         "https://sharepoint.com/url2",
         "https://sharepoint.com/url3"
@@ -269,54 +269,113 @@ $removeButton.Add_Click({
 })
 $fileGroup.Controls.Add($removeButton)
 
-# === Submit Button ===
-$submitButton = New-Object System.Windows.Forms.Button
-$submitButton.Text = "Upload to Azure DevOps"
-$submitButton.Size = New-Object System.Drawing.Size(200, 40)
-$submitButton.Location = New-Object System.Drawing.Point(20, 750)
-$submitButton.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
-$submitButton.ForeColor = [System.Drawing.Color]::White
-$submitButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$submitButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
-$submitButton.Add_Click({
-    $statusBox.Clear()
-    
-    # Validate required fields
-    $requiredFields = @("PAT", "App Name", "Version")
-    $missingFields = @()
-    
-    foreach ($field in $requiredFields) {
-        if ([string]::IsNullOrWhiteSpace($textBoxes[$field].Text)) {
-            $missingFields += $field
+# === Upload to ADO Button Logic ===
+
+$uploadButton = New-Object System.Windows.Forms.Button
+$uploadButton.Text = "Upload to ADO"
+$uploadButton.Size = New-Object System.Drawing.Size(540, 40)
+$uploadButton.Location = New-Object System.Drawing.Point(20, 750)
+$uploadButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$uploadButton.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
+$uploadButton.ForeColor = [System.Drawing.Color]::White
+
+$uploadButton.Add_Click({
+    try {
+        $statusBox.AppendText("Starting upload process...`r`n")
+
+        $organizationUrl = $textBoxes['Organization URL'].Text.TrimEnd('/')
+        $project = $textBoxes['Project'].Text        
+        $repo = $textBoxes['Repo'].Text
+        Add-Type -AssemblyName System.Web
+        $encodedRepo = [System.Web.HttpUtility]::UrlEncode($repo)    
+        $pat = $textBoxes['PAT'].Text
+        $appName = $textBoxes['App Name'].Text
+        $version = $textBoxes['Version'].Text
+
+        if (-not $pat) {
+            [System.Windows.Forms.MessageBox]::Show("PAT token is required.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            return
         }
-    }
-    
-    if ($missingFields.Count -gt 0) {
-        $statusBox.AppendText("Please fill in the following required fields:`r`n")
-        foreach ($field in $missingFields) {
-            $statusBox.AppendText("- $field`r`n")
+
+        $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$pat"))
+        $headers = @{ Authorization = "Basic $base64AuthInfo" }
+
+        $branchName = "refs/heads/main"  # Change if needed
+
+        # Step 1: Get latest commit
+        $refsUrl = "$organizationUrl/$project/_apis/git/repositories/$encodedRepo/refs?filter=heads/main&api-version=6.0"
+        $refResponse = Invoke-RestMethod -Uri $refsUrl -Headers $headers -Method Get -ErrorAction Stop
+        if (-not $refResponse.value) {
+            throw "Branch not found or no refs returned."
         }
-        return
+        $latestCommit = $refResponse.value[0].objectId
+        $statusBox.AppendText("Fetched latest commit.`r`n")
+
+        # Step 2: Prepare changes
+        $changes = @()
+        foreach ($item in $listView.Items) {
+            if ($item.Text -eq "File") {
+                $filePath = $item.SubItems[2].Text
+                if (!(Test-Path $filePath)) {
+                    $statusBox.AppendText("Warning: File not found - $filePath`r`n")
+                    continue
+                }
+                $contentBytes = [System.IO.File]::ReadAllBytes($filePath)
+                $contentString = [System.Text.Encoding]::UTF8.GetString($contentBytes)
+                $relativePath = "$appName/$version/$(Split-Path $filePath -Leaf)"
+
+                $changes += @{
+                    changeType = "add"
+                    item = @{ path = "/$relativePath" }
+                    newContent = @{
+                        content = $contentString
+                        contentType = "rawtext"
+                    }
+                }
+            }
+        }
+
+        if ($changes.Count -eq 0) {
+            throw "No valid files to upload."
+        }
+
+        $statusBox.AppendText("Prepared $($changes.Count) file changes.`r`n")
+
+        # Step 3: Push changes
+        $pushBody = @{
+            refUpdates = @(@{
+                name = $branchName
+                oldObjectId = $latestCommit
+            })
+            commits = @(@{
+                comment = "Creating new folder for $appName"
+                changes = $changes
+            })
+        } | ConvertTo-Json -Depth 10
+        $pushUrl = "$organizationUrl/$project/_apis/git/repositories/$encodedRepo/pushes?&api-version=6.0"
+        $statusBox.AppendText("Pushing changes to: $pushUrl`r`n")
+        $pushResponse = Invoke-RestMethod -Uri $pushUrl -Headers $headers -Method Post -Body $pushBody -ContentType "application/json" -ErrorAction Stop
+        $statusBox.AppendText("Upload completed successfully!`r`n")
     }
+    catch {
+        if ($_.Exception -and $_.Exception.Message) {
+            $errorMessage = $_.Exception.Message
+            $statusBox.AppendText("Error: $errorMessage`r`n")
+            
+            # Try to pull the URL that failed if possible
+            if ($_.Exception.InnerException -and $_.Exception.InnerException.Message) {
+                $statusBox.AppendText("Inner Exception: $($_.Exception.InnerException.Message)`r`n")
+            }
+        } else {
+            $statusBox.AppendText("Error: $_`r`n")
+        }
     
-    # Validate SharePoint URLs
-    $urls = $spTextBox.Text -split "`r`n" | Where-Object { $_ -ne "" }
-    if ($urls.Count -eq 0) {
-        $statusBox.AppendText("Please add at least one SharePoint URL`r`n")
-        return
-    }
-    
-    # Check if files are selected
-    if ($listView.Items.Count -eq 0) {
-        $statusBox.AppendText("Please select at least one file or folder to upload`r`n")
-        return
-    }
-    
-    # If all validations pass, start the upload process
-    $statusBox.AppendText("Starting upload process...`r`n")
-    # TODO: Add your upload logic here
+        [System.Windows.Forms.MessageBox]::Show("Upload failed. See status window.", "Upload Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    }   
 })
-$form.Controls.Add($submitButton)
+
+$form.Controls.Add($uploadButton)
+
 
 # === Status Box ===
 $statusBox = New-Object System.Windows.Forms.TextBox
